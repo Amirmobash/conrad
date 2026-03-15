@@ -1,4 +1,11 @@
 # app.py - Conrad Produktfinder (Vereinfachte Version mit Artikelnummer-Fokus)
+# Author: Amir Mobasheraghdam
+# Date: 2025-03-14
+# Version: 2.0
+# Description: Streamlit-Anwendung zum Extrahieren von Conrad Artikelnummern
+#              aus CSV/PDF und Suchen der entsprechenden Produkte auf conrad.de.
+#              Inkl. OCR-Unterstützung und Web-Fallback-Suche.
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -11,6 +18,7 @@ import base64
 from urllib.parse import urljoin, quote
 import hashlib
 import json
+from typing import List, Dict, Any, Optional, Tuple
 
 # Versuche OCR-Bibliotheken zu importieren
 try:
@@ -28,14 +36,16 @@ except ImportError:
     PDF2IMAGE_SUPPORT = False
     st.warning("PDF2Image-Unterstützung deaktiviert: pdf2image nicht installiert")
 
+# ------------------------------------------------------------------------------
 # Konfiguration
+# ------------------------------------------------------------------------------
 st.set_page_config(
     page_title="Conrad Produktfinder",
     page_icon="🔍",
     layout="wide"
 )
 
-# Session State
+# Session State Initialisierung
 if 'extracted_items' not in st.session_state:
     st.session_state.extracted_items = None
 if 'search_results' not in st.session_state:
@@ -47,7 +57,9 @@ if 'column_mapping' not in st.session_state:
 if 'search_cache' not in st.session_state:
     st.session_state.search_cache = {}
 
-# Deutsche UI-Texte
+# ------------------------------------------------------------------------------
+# Deutsche UI-Texte (zentralisiert)
+# ------------------------------------------------------------------------------
 UI_TEXTS = {
     "title": "Conrad Produktfinder - Bestellungen wiederfinden",
     "file_upload": "Datei hochladen (CSV oder PDF)",
@@ -99,7 +111,10 @@ UI_TEXTS = {
     "bing_search": "Bing Web Search"
 }
 
-def setup_sidebar():
+# ------------------------------------------------------------------------------
+# Hilfsfunktionen
+# ------------------------------------------------------------------------------
+def setup_sidebar() -> Dict[str, Any]:
     """Sidebar mit Konfigurationsoptionen"""
     st.sidebar.title("Einstellungen")
     
@@ -209,7 +224,7 @@ def setup_sidebar():
         'api_key': api_key
     }
 
-def setup_ocr_environment(config):
+def setup_ocr_environment(config: Dict[str, Any]) -> Tuple[bool, str]:
     """OCR-Umgebung einrichten und validieren"""
     if not OCR_SUPPORT:
         return False, "OCR-Unterstützung nicht verfügbar"
@@ -232,7 +247,7 @@ def setup_ocr_environment(config):
     except Exception as e:
         return False, f"OCR-Konfigurationsfehler: {str(e)}"
 
-def extract_text_with_ocr(pdf_file, config):
+def extract_text_with_ocr(pdf_file, config: Dict[str, Any]) -> str:
     """Extrahiere Text aus PDF mit OCR"""
     try:
         # OCR-Umgebung einrichten
@@ -306,7 +321,7 @@ def extract_text_with_ocr(pdf_file, config):
         st.error(f"OCR-Verarbeitungsfehler: {str(e)}")
         return ""
 
-def extract_article_numbers_from_pdf(text):
+def extract_article_numbers_from_pdf(text: str) -> List[str]:
     """
     Extrahiert Conrad Artikelnummern aus OCR-Text
     Fokus NUR auf Bestell-Nr., ignoriert Beschreibungen
@@ -344,7 +359,7 @@ def extract_article_numbers_from_pdf(text):
     
     return article_numbers
 
-def pdf_to_df_simple(pdf_file, config):
+def pdf_to_df_simple(pdf_file, config: Dict[str, Any]) -> Optional[pd.DataFrame]:
     """Konvertiere PDF zu DataFrame - NUR Artikelnummern"""
     st.info(UI_TEXTS["processing_pdf"])
     
@@ -381,11 +396,11 @@ def pdf_to_df_simple(pdf_file, config):
         st.error(f"Fehler bei PDF-Verarbeitung: {str(e)}")
         return None
 
-def get_cache_key(article_no):
+def get_cache_key(article_no: str) -> str:
     """Erstellt Cache-Schlüssel für Artikelnummer"""
     return hashlib.md5(article_no.encode()).hexdigest()
 
-def search_web_fallback(article_no, config, max_results=5):
+def search_web_fallback(article_no: str, config: Dict[str, Any], max_results: int = 5) -> List[Dict]:
     """
     Web-Suche Fallback für Conrad Artikelnummern
     Verwendet verschiedene Suchanbieter
@@ -407,7 +422,7 @@ def search_web_fallback(article_no, config, max_results=5):
         st.error(f"Web-Suche fehlgeschlagen: {str(e)}")
         return []
 
-def search_with_duckduckgo(article_no, max_results=5):
+def search_with_duckduckgo(article_no: str, max_results: int = 5) -> List[Dict]:
     """DuckDuckGo Fallback-Suche (kein API-Schlüssel nötig)"""
     try:
         query = f"site:conrad.de {article_no} Bestell-Nr"
@@ -450,7 +465,7 @@ def search_with_duckduckgo(article_no, max_results=5):
         st.error(f"DuckDuckGo-Suche fehlgeschlagen: {str(e)}")
         return []
 
-def search_with_serper(article_no, api_key, max_results=5):
+def search_with_serper(article_no: str, api_key: str, max_results: int = 5) -> List[Dict]:
     """Serper.dev Google Search API"""
     try:
         query = f"site:conrad.de {article_no} Bestell-Nr"
@@ -492,7 +507,7 @@ def search_with_serper(article_no, api_key, max_results=5):
         st.error(f"Serper API-Suche fehlgeschlagen: {str(e)}")
         return []
 
-def search_with_bing(article_no, api_key, max_results=5):
+def search_with_bing(article_no: str, api_key: str, max_results: int = 5) -> List[Dict]:
     """Bing Web Search API"""
     try:
         query = f"site:conrad.de {article_no} Bestell-Nr"
@@ -534,7 +549,7 @@ def search_with_bing(article_no, api_key, max_results=5):
         st.error(f"Bing API-Suche fehlgeschlagen: {str(e)}")
         return []
 
-def search_conrad_by_article_number(article_no, config, max_results=5):
+def search_conrad_by_article_number(article_no: str, config: Dict[str, Any], max_results: int = 5) -> List[Dict]:
     """
     Sucht Conrad NUR mit Artikelnummer mit Web-Fallback
     """
@@ -621,7 +636,7 @@ def search_conrad_by_article_number(article_no, config, max_results=5):
             return search_web_fallback(article_no, config, max_results)
         return []
 
-def extract_product_info_simple(element, original_article_no):
+def extract_product_info_simple(element, original_article_no: str) -> Optional[Dict]:
     """Einfache Produktinfo-Extraktion"""
     try:
         # Link finden
@@ -649,7 +664,7 @@ def extract_product_info_simple(element, original_article_no):
     except Exception:
         return None
 
-def fetch_product_details(product_url, original_article_no):
+def fetch_product_details(product_url: str, original_article_no: str) -> Optional[Dict]:
     """Holt detaillierte Produktinformationen von der Produktseite"""
     try:
         headers = {
@@ -743,7 +758,7 @@ def manual_data_entry():
         st.session_state.extracted_items = df
         st.success(f"{len(products)} Produkte übernommen")
 
-def perform_single_search(idx, row, config, column_mapping):
+def perform_single_search(idx: int, row: pd.Series, config: Dict[str, Any], column_mapping: Dict[str, str]):
     """Suche für eine einzelne Zeile durchführen - NUR mit Artikelnummer"""
     article_col = column_mapping.get('article_no', 'article_no')
     
@@ -768,7 +783,7 @@ def perform_single_search(idx, row, config, column_mapping):
     if not candidates:
         st.warning(f"{UI_TEXTS['no_results_for']} {clean_article_no}")
 
-def perform_bulk_search(df, config, column_mapping):
+def perform_bulk_search(df: pd.DataFrame, config: Dict[str, Any], column_mapping: Dict[str, str]):
     """MassenSuche für alle Zeilen - NUR mit Artikelnummern"""
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -799,7 +814,7 @@ def perform_bulk_search(df, config, column_mapping):
     
     status_text.text("Suche abgeschlossen")
 
-def display_search_results(idx, config):
+def display_search_results(idx: int, config: Dict[str, Any]):
     """Suchergebnisse für eine bestimmte Zeile anzeigen"""
     results = st.session_state.search_results.get(idx, [])
     
@@ -853,7 +868,7 @@ def display_search_results(idx, config):
                 unsafe_allow_html=True
             )
 
-def create_final_dataframe(original_df, column_mapping):
+def create_final_dataframe(original_df: pd.DataFrame, column_mapping: Dict[str, str]) -> pd.DataFrame:
     """Finalen DataFrame mit ausgewählten Produkten erstellen"""
     final_data = []
     
