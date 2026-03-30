@@ -1,6 +1,6 @@
 # app.py - Conrad Produktfinder (Optimierte Version mit Artikelnummer-Fokus)
 # Author: Amir Mobasheraghdam
-# Date: 2026-03-30
+# upDate: 2026-03-30
 # Version: 3.0
 # Description: Streamlit-Anwendung zum Extrahieren von Conrad Artikelnummern
 #              aus CSV/PDF und Suchen der entsprechenden Produkte auf conrad.de.
