@@ -1,7 +1,7 @@
 # app.py - Conrad Produktfinder (Ultimative Version)
 # Autor: Amir Mobasheraghdam (optimiert)
-# Datum: 2026-04-06
-# Version: 4.0
+# Datum: 2026-04-09
+# Version: 5.0
 # Beschreibung: Streamlit-Anwendung zum Extrahieren von Conrad Artikelnummern
 #              aus CSV/PDF und Suchen der entsprechenden Produkte auf conrad.de.
 #              Enthält OCR, Websuche-Fallback, asynchrone Anfragen, intelligentes Caching.
@@ -111,7 +111,6 @@ UI_TEXTE = {
     "duckduckgo_fallback": "DuckDuckGo (kostenlos, kein API-Key)",
     "serper_dev": "Serper.dev (Google Ergebnisse, kostenpflichtig)",
     "bing_search": "Bing Web Search (kostenpflichtig)",
-    "use_async": "⚡ Asynchrone Suche (schneller, mehrere Anfragen gleichzeitig)",
     "cache_info": "💾 Ergebnisse werden zwischengespeichert (TTL: {} Sekunden)",
     "status_searching": "Suche läuft...",
     "status_complete": "Suche abgeschlossen.",
@@ -136,8 +135,9 @@ UI_TEXTE = {
     "search_progress": "Suche Position {}/{}",
     "select_product": "Produkt auswählen für Zeile {}",
     "source_label": "Quelle",
+    "settings": "⚙️ Einstellungen",
+    "logo_alt": "Conrad Logo",
 }
-
 # Cache-TTL in den Text einfügen
 UI_TEXTE["cache_info"] = UI_TEXTE["cache_info"].format(CACHE_TTL)
 
@@ -252,8 +252,8 @@ def extrahiere_text_aus_pdf(pdf_bytes: bytes, konfig: Dict[str, Any]) -> str:
             if text_direkt.strip():
                 st.info("📄 Eingebetteter Text aus PDF extrahiert (OCR nicht nötig).")
                 return text_direkt
-        except Exception:
-            pass  # Fallback auf OCR
+        except Exception as e:
+            st.warning(f"Direkte Textextraktion fehlgeschlagen: {e}. Versuche OCR...")
 
         # OCR erforderlich
         if not PDF2IMAGE_SUPPORT:
@@ -305,18 +305,19 @@ def extrahiere_text_aus_pdf(pdf_bytes: bytes, konfig: Dict[str, Any]) -> str:
 def extrahiere_artikelnummern_aus_text(text: str) -> List[str]:
     """
     Durchsucht Rohtext nach Conrad-Artikelnummern.
-    Verwendet mehrere reguläre Ausdrücke.
+    Verwendet mehrere reguläre Ausdrücke (spezifische Muster zuerst).
     """
     if not text:
         return []
     artikel_nrn = []
+    # Spezifische Muster zuerst (höhere Priorität)
     muster = [
         r'bestell[.-]?nr\.?\s*:?\s*([0-9]+)\s*-?\s*[0-9]*',
         r'bestell[.-]?nr\.?\s*:?\s*([0-9]+[-\s]*[0-9]*)',
         r'bestellnummer\s*:?\s*([0-9]+)',
         r'artikel[.-]?nr\.?\s*:?\s*([0-9]+)',
         r'conrad\s*art\.?\s*nr\.?\s*:?\s*([0-9]+)',
-        r'([0-9]{5,8})',          # generische 5-8 stellige Zahl (kann false positives geben)
+        r'([0-9]{5,8})',          # generische 5-8 stellige Zahl (letzter Ausweg)
     ]
     zeilen = text.split('\n')
     for zeile in zeilen:
@@ -364,6 +365,8 @@ async def hole_html(session: aiohttp.ClientSession, url: str, headers: Dict) -> 
         async with session.get(url, headers=headers, timeout=15) as resp:
             if resp.status == 200:
                 return await resp.text()
+    except asyncio.TimeoutError:
+        st.toast(f"Zeitüberschreitung beim Abrufen von {url}", icon="⏰")
     except Exception:
         pass
     return None
@@ -557,7 +560,7 @@ async def suche_produkt_async(artikel_nr: str, konfig: Dict[str, Any]) -> List[D
 
         # Fallback, falls keine Ergebnisse und gewünscht
         if not produkte and konfig.get('fallback_aktiv', True):
-            st.info(f"{UI_TEXTE['searching_web']} {artikel_nr}")
+            st.toast(f"{UI_TEXTE['searching_web']} {artikel_nr}", icon="🌐")
             fallback = await suche_web_fallback_async(artikel_nr, konfig, session)
             produkte.extend(fallback)
 
@@ -593,8 +596,12 @@ def suche_conrad_nach_artikelnummer(artikel_nr: str, konfig: Dict[str, Any]) -> 
 # ------------------------------------------------------------------------------
 def sidebar_konfiguration() -> Dict[str, Any]:
     """Erstellt die Sidebar mit allen Konfigurationsmöglichkeiten."""
-    st.sidebar.image("https://www.conrad.de/medias/logo.svg?context=bWFzdGVyfGltYWdlc3wxNTI5fGltYWdlL3N2Zyt4bWx8YUdFeUwyaGxaaTg0TURBd01ERXpNREF3TWpBd0w2SjFjMmx1Wnk5dFlYSnBlR2xrWlM4eE1UTTJNREF3TkRFeU5qQTVNVEV4TG5Cb2NnPT0", width=200)
-    st.sidebar.title("⚙️ Einstellungen")
+    # Logo versuchen zu laden (Fallback bei Netzwerkfehler)
+    try:
+        st.sidebar.image("https://www.conrad.de/medias/logo.svg?context=bWFzdGVyfGltYWdlc3wxNTI5fGltYWdlL3N2Zyt4bWx8YUdFeUwyaGxaaTg0TURBd01ERXpNREF3TWpBd0w2SjFjMmx1Wnk5dFlYSnBlR2xrWlM4eE1UTTJNREF3TkRFeU5qQTVNVEV4TG5Cb2NnPT0", width=200)
+    except:
+        st.sidebar.markdown(f"### {UI_TEXTE['logo_alt']}")
+    st.sidebar.title(UI_TEXTE["settings"])
 
     # OCR-Konfiguration (nur anzeigen, wenn unterstützt)
     st.sidebar.subheader(UI_TEXTE["ocr_config"])
@@ -644,11 +651,6 @@ def sidebar_konfiguration() -> Dict[str, Any]:
         min_value=1, max_value=10, value=DEFAULT_MAX_RESULTS,
         help="Maximale Anzahl angezeigter Produkte pro Artikelnummer."
     )
-    verwende_async = st.sidebar.checkbox(
-        UI_TEXTE["use_async"],
-        value=True,
-        help="Aktiviert parallele Anfragen für schnellere Suche (empfohlen)."
-    )
 
     # Web-Fallback
     st.sidebar.subheader(UI_TEXTE["web_search_fallback"])
@@ -684,7 +686,6 @@ def sidebar_konfiguration() -> Dict[str, Any]:
         'ocr_dpi': ocr_dpi,
         'such_verzoegerung': such_verzoegerung,
         'max_ergebnisse': max_ergebnisse,
-        'verwende_async': verwende_async,
         'fallback_aktiv': fallback_aktiv,
         'such_anbieter': such_anbieter,
         'serper_api_key': api_key if such_anbieter == "serper" else None,
@@ -757,6 +758,7 @@ def massen_suche(df: pd.DataFrame, konfig: Dict[str, Any], spalten_map: Dict[str
         time.sleep(konfig['such_verzoegerung'])
         progress_bar.progress((idx+1) / gesamt)
     status_text.text(UI_TEXTE["status_complete"])
+    st.toast(UI_TEXTE["status_complete"], icon="✅")
 
 def zeige_suchergebnisse(idx: int, konfig: Dict[str, Any]) -> None:
     """Zeigt die Suchergebnisse für eine bestimmte Zeile an und erlaubt Auswahl."""
